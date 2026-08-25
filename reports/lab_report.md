@@ -8,7 +8,7 @@
 | Member | Student ID | Part | Files | Status |
 |---|---|---|---|---|
 | Lê Thị Hải Yến | 2A202601570 | 1 — State & LLM nodes | `state.py`, `nodes.py`, `llm.py` | Done |
-| (fill in) | (fill in) | 2 — Routing & graph wiring | `routing.py`, `graph.py` | Pending |
+| Nguyễn Hải Anh | 2A202601670 | 2 — Routing & graph wiring | `routing.py`, `graph.py` | Done |
 | (fill in) | (fill in) | 3 — Persistence, metrics & report | `persistence.py`, `report.py` | Pending |
 
 ## 2. Architecture (Part 1 scope)
@@ -33,6 +33,19 @@ for `route`, `attempt`, `evaluation_result`, `pending_question`, `proposed_actio
 
 `llm.py` was extended with `load_dotenv()` at import time so `.env` is picked up both by the CLI
 and by pytest (see `tests/conftest.py`).
+
+### Architecture (Part 2 scope)
+
+`routing.py` implements routing functions for conditional edges:
+- `route_after_classify`: Maps the `route` provided by `classify_node` to the appropriate next node.
+- `route_after_evaluate`: Acts as a gate after a tool call, routing to `retry` if `evaluation_result` is `"needs_retry"`, otherwise proceeding to `answer`.
+- `route_after_retry`: Bounds the retry loop by checking `attempt < max_attempts`. If the limit is reached, it routes to `dead_letter`, otherwise it goes back to `tool`.
+- `route_after_approval`: Routes based on the human approval decision, proceeding to `tool` if approved, or routing to `clarify` if rejected.
+
+`graph.py` wires everything together into a `StateGraph` using `AgentState`:
+- Registers all node functions defined in `nodes.py`.
+- Establishes unconditional edges for linear paths (e.g., `START → intake → classify`, `answer → finalize → END`).
+- Applies the routing functions from `routing.py` as conditional edges to handle complex branching logic, retries, and approvals.
 
 ## 3. State schema
 
