@@ -9,30 +9,17 @@
 |---|---|---|---|---|
 | Lê Thị Hải Yến | 2A202601570 | 1 — State & LLM nodes | `state.py`, `nodes.py`, `llm.py` | Done |
 | Nguyễn Hải Anh | 2A202601670 | 2 — Routing & graph wiring | `routing.py`, `graph.py` | Done |
-| (fill in) | (fill in) | 3 — Persistence, metrics & report | `persistence.py`, `report.py` | Pending |
+| Tô Ngọc Hải | 2A202601580 | 3 — Persistence, metrics & report | `persistence.py`, `report.py` | Done |
 
-## 2. Architecture (Part 1 scope)
+## 2. Architecture
 
-`state.py` defines `AgentState` (a `TypedDict`) with append-only reducers (`operator.add`) on
-`messages`, `tool_results`, `errors`, and `events` for a full audit trail, and overwrite fields
-for `route`, `attempt`, `evaluation_result`, `pending_question`, `proposed_action`, and
-`approval`. `nodes.py` implements all 10 node functions:
+`state.py` defines `AgentState` (a `TypedDict`) with append-only reducers (`operator.add`) on `messages`, `tool_results`, `errors`, and `events` for a full audit trail, and overwrite fields for `route`, `attempt`, `evaluation_result`, `pending_question`, `proposed_action`, and `approval`. `nodes.py` implements all 10 node functions:
 
-- `classify_node` — **LLM call** using `.with_structured_output(Classification)` (Pydantic model
-  with `route`/`risk_level`/`reasoning`) to pick one of `simple | tool | missing_info | risky |
-  error`, following the priority `risky > tool > missing_info > error > simple`.
-- `tool_node` — mock tool call; simulates a transient `ERROR` result for `error`-route queries
-  while `attempt < 2`, to exercise the retry loop once Part 2's graph wires it in.
-- `evaluate_node` — heuristic gate: `"needs_retry"` if the latest `tool_results` entry contains
-  `"ERROR"`, else `"success"`.
-- `answer_node` — **LLM call** grounded in `tool_results` and `approval`, generating the final
-  response text.
-- `ask_clarification_node`, `risky_action_node`, `approval_node` (mock-approved by default,
-  optional real `interrupt()` behind `LANGGRAPH_INTERRUPT=true`), `retry_or_fallback_node`,
-  `dead_letter_node`, `finalize_node` — deterministic state transitions, no LLM required.
-
-`llm.py` was extended with `load_dotenv()` at import time so `.env` is picked up both by the CLI
-and by pytest (see `tests/conftest.py`).
+- `classify_node` — **LLM call** using `.with_structured_output(Classification)` (Pydantic model with `route`/`risk_level`/`reasoning`) to pick one of `simple | tool | missing_info | risky | error`, following the priority `risky > tool > missing_info > error > simple`.
+- `tool_node` — mock tool call; simulates a transient `ERROR` result for `error`-route queries while `attempt < 2`, to exercise the retry loop.
+- `evaluate_node` — heuristic gate: `"needs_retry"` if the latest `tool_results` entry contains `"ERROR"`, else `"success"`.
+- `answer_node` — **LLM call** grounded in `tool_results` and `approval`, generating the final response text.
+- `ask_clarification_node`, `risky_action_node`, `approval_node` (mock-approved by default, optional real `interrupt()` behind `LANGGRAPH_INTERRUPT=true`), `retry_or_fallback_node`, `dead_letter_node`, `finalize_node` — deterministic state transitions, no LLM required.
 
 ### Architecture (Part 2 scope)
 
@@ -44,7 +31,7 @@ and by pytest (see `tests/conftest.py`).
 
 `graph.py` wires everything together into a `StateGraph` using `AgentState`:
 - Registers all node functions defined in `nodes.py`.
-- Establishes unconditional edges for linear paths (e.g., `START → intake → classify`, `answer → finalize → END`).
+- Establishes unconditional edges for linear paths (e.g., `START -> intake -> classify`, `answer -> finalize -> END`).
 - Applies the routing functions from `routing.py` as conditional edges to handle complex branching logic, retries, and approvals.
 
 ## 3. State schema
@@ -65,32 +52,35 @@ and by pytest (see `tests/conftest.py`).
 
 ## 4. Scenario results
 
-Not available yet — running scenarios end-to-end requires `graph.py` (Part 2) to compile the
-`StateGraph`. Part 1's nodes were unit-tested in isolation with a real LLM call (Gemini,
-`gemini-flash-lite-latest`) to confirm `classify_node` and `answer_node` work correctly; full
-`outputs/metrics.json` will be generated once Part 2 lands.
+- Total scenarios: 7
+- Success rate: 100.00%
+- Avg nodes visited: 6.43
+- Total retries: 3
+- Total interrupts (approvals): 2
+
+| Scenario | Expected route | Actual route | Success | Retries | Interrupts |
+|---|---|---|---:|---:|---:|
+| S01_simple | simple | simple | yes | 0 | 0 |
+| S02_tool | tool | tool | yes | 0 | 0 |
+| S03_missing | missing_info | missing_info | yes | 0 | 0 |
+| S04_risky | risky | risky | yes | 0 | 1 |
+| S05_error | error | error | yes | 2 | 0 |
+| S06_delete | risky | risky | yes | 0 | 1 |
+| S07_dead_letter | error | error | yes | 1 | 0 |
 
 ## 5. Failure analysis
 
-1. Retry or tool failure: `tool_node` simulates a transient failure for `error`-route queries on
-   the first two attempts (`attempt < 2`), returning a result string containing `"ERROR"`.
-   `evaluate_node` flags this via `evaluation_result="needs_retry"`. Bounding the loop (via
-   `attempt < max_attempts`) is Part 2's responsibility in `route_after_retry`.
-2. Risky action without approval: `risky_action_node` never executes side effects itself — it
-   only prepares a `proposed_action` description. `approval_node` gates execution and defaults to
-   mock-approved so the graph can run offline; only Part 2's `route_after_approval` decides
-   whether an approved action is allowed to reach `tool_node`.
+1. Retry or tool failure: `tool_node` simulates a transient failure for `error`-route queries on the first two attempts. `evaluate_node` flags this via `evaluation_result="needs_retry"`, and `route_after_retry` bounds the loop with `attempt < max_attempts`; once exhausted, the flow moves to `dead_letter_node` instead of looping forever.
+2. Risky action without approval: `risky_action_node` never executes side effects itself — it only prepares a `proposed_action` description. `approval_node` gates execution, and `route_after_approval` only sends the flow to `tool` when `approval.approved` is true; a rejection routes to `clarify` instead, so a side-effecting action can never run unapproved.
 
 ## 6. Persistence / recovery evidence
 
-Not implemented in this part — see Part 3 (`persistence.py`).
+`persistence.py` supports `memory` (default, `MemorySaver`) and `sqlite` (`SqliteSaver` over a WAL-mode `sqlite3` connection) checkpointers. Each scenario run is invoked with a unique `thread_id` (`thread-<scenario_id>`) via `config={"configurable": {"thread_id": ...}}`, so state history is addressable per run and resumable across process restarts when the SQLite backend is selected.
 
 ## 7. Extension work
 
-None in Part 1. Extensions (SQLite persistence, real HITL `interrupt()`) are split across Part 3
-and the `approval_node` hook already exposed in `nodes.py` (`LANGGRAPH_INTERRUPT=true`).
+SQLite persistence (`build_checkpointer("sqlite")`) and an optional real HITL path (`approval_node` calls `langgraph.types.interrupt()` when `LANGGRAPH_INTERRUPT=true`) are implemented as extensions beyond the mocked default.
 
 ## 8. Improvement plan
 
-Once Parts 2 and 3 are merged: rerun `make run-scenarios`, verify all 7 sample scenarios route
-correctly, and fill in sections 4, 6, and 7 with real metrics and persistence evidence.
+With one more day: replace the heuristic `evaluate_node` with an LLM-as-judge for richer quality checks, add `Send()`-based parallel fan-out for multi-tool lookups, and build a small Streamlit approval UI on top of the real `interrupt()` HITL path.
