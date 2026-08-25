@@ -1,18 +1,15 @@
 # Day 08 Lab Report
 
-## 1. Team / student
+## 1. Team
 
-- Name: Lê Thị Hải Yến_2A202601570
-- Repo/commit: github.com/lybii/Track3-DAY23_LeThiHaiYen_2A202601570 @ 6d8252d
+- Repo: github.com/lybii/Track3-DAY23_LeThiHaiYen_2A202601570
 - Date: 2026-08-25
 
-**Team split (3 members):**
-
-| Part | Owner | Files | Status |
-|---|---|---|---|
-| 1 — State & LLM nodes | Lê Thị Hải Yến (this report) | `state.py`, `nodes.py`, `llm.py` | Done |
-| 2 — Routing & graph wiring | Member 2 | `routing.py`, `graph.py` | Pending |
-| 3 — Persistence, metrics & report | Member 3 | `persistence.py`, `report.py` | Pending |
+| Member | Student ID | Part | Files | Status |
+|---|---|---|---|---|
+| Lê Thị Hải Yến | 2A202601570 | 1 — State & LLM nodes | `state.py`, `nodes.py`, `llm.py` | Done |
+| (fill in) | (fill in) | 2 — Routing & graph wiring | `routing.py`, `graph.py` | Pending |
+| (fill in) | (fill in) | 3 — Persistence, metrics & report | `persistence.py`, `report.py` | Pending |
 
 ## 2. Architecture (Part 1 scope)
 
